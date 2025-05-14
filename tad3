@@ -1,0 +1,79 @@
+#include <Wire.h>                 // Include I2C communication library
+#include <MPU6050_tockn.h>      // Include MPU6050 sensor library
+#include <Servo.h>              // Include Servo motor control library
+
+// Create MPU6050 object using I2C
+MPU6050 mpu(Wire);
+
+// Create Servo object
+Servo motor;
+
+// --- PID Control Variables ---
+float sp = 5.0;          // Setpoint: Desired angle in degrees
+float pv;                // Process Variable: Current measured angle
+float err;               // Error: Difference between setpoint and measured value
+float prevErr = 0;       // Previous Error: Used for derivative calculation
+float sumErr = 0;        // Integral: Sum of all past errors (used for integral term)
+float kp = 1.5;          // Proportional gain constant
+float ki = 0.05;         // Integral gain constant
+float kd = 0.1;          // Derivative gain constant
+float pidOut;            // PID output value
+
+// --- Timing Variables ---
+unsigned long prevTime;  // Timestamp of previous loop
+float dt;                // Time difference between current and previous loop (in seconds)
+
+void setup() {
+  Serial.begin(9600);              // Start Serial communication for debugging
+  Wire.begin();                    // Initialize I2C communication
+  mpu.begin();                     // Start MPU6050 sensor
+  mpu.calcGyroOffsets(true);       // Auto-calibrate the gyroscope (removes drift)
+
+  motor.attach(9);                 // Attach servo signal pin to digital pin 9
+  prevTime = millis();             // Initialize previous time to current time
+}
+
+void loop() {
+  mpu.update();                    // Read new data from the MPU6050 sensor
+  pv = mpu.getAngleX();            // Get current angle (X-axis rotation)
+
+  // --- PID Computation ---
+  err = sp - pv;                   // Calculate error
+  unsigned long now = millis();   // Current time
+  dt = (now - prevTime) / 1000.0; // Time difference in seconds
+
+  sumErr += err * dt;             // Calculate integral term (accumulated error)
+  float dErr = (err - prevErr) / dt; // Calculate derivative term (rate of error change)
+
+  pidOut = kp * err + ki * sumErr + kd * dErr; // Compute final PID output
+
+  prevErr = err;                  // Save current error for next loop
+  prevTime = now;                 // Update previous time
+
+  // --- Servo Output ---
+  float servoPos = constrain(pidOut + 90, 0, 180); // Shift PID output to servo range and constrain it
+  motor.write(servoPos);          // Move the servo to calculated position
+
+  // --- Debug Output ---
+  Serial.print("Angle: ");
+  Serial.print(pv);               // Print current angle
+  Serial.print(" | Output: ");
+  Serial.println(servoPos);       // Print servo position
+
+  delay(20);                      // Short delay (~50Hz update rate)
+}
+
+/*
+Arduino Nano Hardware Connections:
+----------------------------------
+MPU6050:
+- VCC  -> 3.3V or 5V (check your MPU6050 version)
+- GND  -> GND
+- SDA  -> A4
+- SCL  -> A5
+
+Servo Motor:
+- Signal -> D9
+- VCC    -> External 5V supply (not Arduino 5V pin)
+- GND    -> Common GND with Arduino
+*/
